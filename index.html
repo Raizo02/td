@@ -192,7 +192,18 @@
                 document.body.appendChild(errorDiv);
             });
 
-        // 4. Tambah Legenda (Petunjuk Peta) Boleh Lipat di penjuru bawah kiri
+
+
+        // 4. Tambah Tajuk Besar Peta
+        const titleControl = L.control({ position: 'topleft' });
+        titleControl.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'bg-white/90 backdrop-blur-sm px-4 py-2 md:px-5 md:py-3 rounded-xl shadow-lg border border-gray-200');
+            div.innerHTML = '<h1 class="text-lg md:text-xl font-black text-gray-900 tracking-tight">Organisasi TDM</h1>';
+            return div;
+        }
+        titleControl.addTo(map);
+
+        // 5. Tambah Legenda (Petunjuk Peta) Boleh Lipat di penjuru bawah kiri
         const legend = L.control({ position: 'topleft' }); // Alih posisi ke atas kiri
 
         legend.onAdd = function (map) {
@@ -271,15 +282,6 @@
             return div;
         };
         legend.addTo(map);
-
-        // 5. Tambah Tajuk Besar Peta
-        const titleControl = L.control({ position: 'topleft' });
-        titleControl.onAdd = function (map) {
-            const div = L.DomUtil.create('div', 'bg-white/90 backdrop-blur-sm px-4 py-2 md:px-5 md:py-3 rounded-xl shadow-lg border border-gray-200');
-            div.innerHTML = '<h1 class="text-lg md:text-xl font-black text-gray-900 tracking-tight">Organisasi TDM</h1>';
-            return div;
-        }
-        titleControl.addTo(map);
 
     </script>
 </body>
