@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Peta Kawasan Divisyen Tentera Darat Malaysia</title>
+    
+    <!-- Tailwind CSS untuk gaya dan susun atur responsif -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS untuk asas rekaan peta -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { 
+            margin: 0; 
+            padding: 0; 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+        }
+        /* Menetapkan peta pada saiz penuh skrin */
+        #map { 
+            height: 100vh; 
+            width: 100vw; 
+            z-index: 1; 
+        }
+        /* Gaya untuk legenda di penjuru peta */
+        .legend {
+            background: rgba(255, 255, 255, 0.95);
+            line-height: 1.5em;
+            color: #333;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-radius: 0.75rem;
+            border: 1px solid #e5e7eb;
+            backdrop-filter: blur(4px);
+            overflow: hidden;
+            transition: width 0.3s ease;
+        }
+        .legend i {
+            width: 24px;
+            height: 24px;
+            float: left;
+            margin-right: 12px;
+            border-radius: 4px;
+            border: 1px solid rgba(0,0,0,0.2);
+        }
+        /* Gaya tetingkap timbul (tooltip) kustom */
+        .leaflet-tooltip.custom-tooltip {
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            color: #1f2937;
+        }
+    </style>
+</head>
+<body class="overflow-hidden">
+
+    <!-- Bekas Peta -->
+    <div id="map"></div>
+
+    <!-- Leaflet JS untuk fungsi interaktif peta -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // 1. Inisialisasi Peta
+        // Koordinat diset pada titik tengah antara Semenanjung dan Sabah/Sarawak
+        const map = L.map('map', {
+            zoomControl: false // Disembunyikan buat sementara untuk dialih posisi
+        }).setView([4.2105, 108.9758], 6);
+
+        // Tambah kawalan zoom di penjuru atas kanan
+        L.control.zoom({
+            position: 'topright'
+        }).addTo(map);
+
+        // Tambah Tile Layer (Base Map - Menggunakan tema cerah supaya warna negeri terserlah)
+        // Permintaan: Buang semua pin point. Oleh itu hanya poligon geojson akan dipaparkan.
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> penyumbang &copy; <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        // 2. Fungsi untuk menentukan warna sempadan berdasarkan Divisyen dan nama negeri
+        function getColorData(stateName) {
+            const name = stateName.toLowerCase();
+            
+            // 1 Divisyen: Sarawak (Warna Biru Cair)
+            if (name.includes('sarawak')) {
+                return { color: '#87CEFA', div: '1 Divisyen', label: 'Biru Cair' }; 
+            }
+            // 5 Divisyen: Sabah (Warna Hijau Cair)
+            // Nota: Labuan diletakkan dalam kategori ini kerana kedudukannya berhampiran Sabah.
+            if (name.includes('sabah') || name.includes('labuan')) {
+                return { color: '#98FB98', div: '5 Divisyen', label: 'Hijau Cair' };
+            }
+            // 2 Divisyen: Perlis, Kedah, P.Pinang, Kelantan, Terengganu (Warna Kuning Cair)
+            if (name.includes('perlis') || name.includes('kedah') || name.includes('pinang') || name.includes('kelantan') || name.includes('terengganu')) {
+                return { color: '#FFFACD', div: '2 Divisyen', label: 'Kuning Cair' }; 
+            }
+            // 3 Divisyen: Melaka, Johor, Negeri Sembilan, Pahang (Warna Merah Cair)
+            if (name.includes('melaka') || name.includes('johor') || name.includes('sembilan') || name.includes('pahang')) {
+                return { color: '#FF9999', div: '3 Divisyen', label: 'Merah Cair' }; // Merah cair sedikit gelap 
+            }
+            // 4 Divisyen: Selangor, Kuala Lumpur, Perak (Warna Merah Cair)
+            // Nota: Putrajaya diletakkan dalam 4 Divisyen bersama Selangor & KL. 
+            if (name.includes('selangor') || name.includes('lumpur') || name.includes('perak') || name.includes('putrajaya')) {
+                return { color: '#FFC0CB', div: '4 Divisyen', label: 'Merah Cair (Cerah)' }; // Merah cair sedikit cerah untuk membezakan sempadan
+            }
+            
+            // Default untuk jika ada rekod lain yang tidak disenaraikan
+            return { color: '#e2e8f0', div: 'Tidak Diketahui', label: 'Kelabu' };
+        }
+
+        // 3. Muat turun Data GeoJSON Negeri-negeri Malaysia
+        let geojsonLayer;
+        const geojsonUrl = 'https://raw.githubusercontent.com/nullifye/malaysia.geojson/master/malaysia.state.geojson';
+
+        fetch(geojsonUrl)
+            .then(response => {
+                if (!response.ok) throw new Error('Rangkaian pelayan bermasalah');
+                return response.json();
+            })
+            .then(data => {
+                // Menjana lapisan poligon peta tanpa sebarang penanda titik (marker)
+                geojsonLayer = L.geoJSON(data, {
+                    style: function(feature) {
+                        const stateName = feature.properties.name || feature.properties.Name || 'Unknown';
+                        const info = getColorData(stateName);
+                        return {
+                            fillColor: info.color,
+                            weight: 1.5,
+                            opacity: 1,
+                            color: '#ffffff', // Garisan sempadan negeri putih (supaya kemas)
+                            dashArray: '',
+                            fillOpacity: 0.85 // Tahap kelegapan warna (cair)
+                        };
+                    },
+                    onEachFeature: function(feature, layer) {
+                        const stateName = feature.properties.name || feature.properties.Name || 'Unknown';
+                        const info = getColorData(stateName);
+                        
+                        // Paparkan tooltip (nama negeri & divisyen) apabila tetikus diletakkan di atas kawasan
+                        layer.bindTooltip(`
+                            <div class="text-center">
+                                <strong class="text-lg font-black uppercase text-gray-800 tracking-wide">${stateName}</strong><br/>
+                                <span class="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded mt-1 inline-block border border-blue-100">${info.div}</span>
+                            </div>
+                        `, { 
+                            sticky: true, // Tooltip mengikut pergerakan tetikus
+                            className: 'custom-tooltip'
+                        });
+                        
+                        // Kesan interaktif apabila lalukan tetikus (hover)
+                        layer.on({
+                            mouseover: function(e) {
+                                const target = e.target;
+                                target.setStyle({
+                                    weight: 3,
+                                    color: '#4b5563', // Tukar warna sempadan jadi gelap
+                                    fillOpacity: 1 // Warna jadi solid penuh
+                                });
+                                target.bringToFront();
+                            },
+                            mouseout: function(e) {
+                                // Kembali ke rekaan asal apabila tetikus dialih
+                                geojsonLayer.resetStyle(e.target);
+                            }
+                        });
+                    }
+                }).addTo(map);
+                
+                // Laraskan skala paparan peta secara automatik supaya muat merangkumi seluruh Malaysia
+                map.fitBounds(geojsonLayer.getBounds());
+            })
+            .catch(error => {
+                console.error('Ralat memuat turun data peta:', error);
+                
+                // Paparkan Notifikasi Ralat pada UI jika gagal memuat turun data
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'absolute top-6 left-1/2 transform -translate-x-1/2 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-xl z-[9999]';
+                errorDiv.innerHTML = '<strong class="block font-bold mb-1">Ralat Peta</strong> Gagal memuat turun sempadan geojson negeri. Sila semak sambungan internet anda.';
+                document.body.appendChild(errorDiv);
+            });
+
+        // 4. Tambah Legenda (Petunjuk Peta) Boleh Lipat di penjuru bawah kiri
+        const legend = L.control({position: 'bottomleft'});
+
+        legend.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'legend w-[280px]'); // Lebar tetap apabila dibuka
+            
+            // Halang interaksi peta (seperti zoom/pan) apabila klik pada legenda
+            L.DomEvent.disableClickPropagation(div);
+
+            div.innerHTML = `
+                <!-- Bahagian Pengepala Legenda (Boleh Klik) -->
+                <div id="legend-header" class="p-4 cursor-pointer flex justify-between items-center hover:bg-gray-50/80 transition-colors">
+                    <div>
+                        <h4 class="font-black text-gray-800 text-lg leading-none mb-1">
+                            Zon Divisyen
+                        </h4>
+                        <span id="legend-subtitle" class="text-xs font-medium text-gray-500 block">Tentera Darat Malaysia</span>
+                    </div>
+                    <svg id="legend-icon" class="w-5 h-5 text-gray-500 transform transition-transform duration-300 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                </div>
+                
+                <!-- Bahagian Kandungan Legenda -->
+                <div id="legend-content" class="px-4 pb-4 block border-t border-gray-100 mt-1 pt-3">
+                    <div class="flex items-center mb-3">
+                        <i style="background:#87CEFA"></i> 
+                        <div class="leading-tight"><span class="font-bold text-gray-800">1 Divisyen</span><br><span class="text-[11px] text-gray-500">Sarawak (Biru Cair)</span></div>
+                    </div>
+                    
+                    <div class="flex items-center mb-3">
+                        <i style="background:#FFFACD"></i> 
+                        <div class="leading-tight"><span class="font-bold text-gray-800">2 Divisyen</span><br><span class="text-[11px] text-gray-500">Perlis, Kedah, P.Pinang,<br>Kelantan, Terengganu (Kuning Cair)</span></div>
+                    </div>
+                    
+                    <div class="flex items-center mb-3">
+                        <i style="background:#FF9999"></i> 
+                        <div class="leading-tight"><span class="font-bold text-gray-800">3 Divisyen</span><br><span class="text-[11px] text-gray-500">Melaka, Johor, N.Sembilan,<br>Pahang (Merah Cair)</span></div>
+                    </div>
+                    
+                    <div class="flex items-center mb-3">
+                        <i style="background:#FFC0CB"></i> 
+                        <div class="leading-tight"><span class="font-bold text-gray-800">4 Divisyen</span><br><span class="text-[11px] text-gray-500">Selangor, K.Lumpur, Perak<br>(Merah Cair)</span></div>
+                    </div>
+                    
+                    <div class="flex items-center">
+                        <i style="background:#98FB98"></i> 
+                        <div class="leading-tight"><span class="font-bold text-gray-800">5 Divisyen</span><br><span class="text-[11px] text-gray-500">Sabah (Hijau Cair)</span></div>
+                    </div>
+                </div>
+            `;
+
+            // Logik JavaScript untuk fungsi lipatan (Collapse/Expand)
+            const header = div.querySelector('#legend-header');
+            const content = div.querySelector('#legend-content');
+            const icon = div.querySelector('#legend-icon');
+            const subtitle = div.querySelector('#legend-subtitle');
+            let isExpanded = true;
+
+            header.addEventListener('click', () => {
+                isExpanded = !isExpanded;
+                if (isExpanded) {
+                    content.style.display = 'block';
+                    icon.classList.add('rotate-180');
+                    subtitle.style.display = 'block';
+                    div.classList.add('w-[280px]');
+                    div.classList.remove('w-auto');
+                } else {
+                    content.style.display = 'none';
+                    icon.classList.remove('rotate-180');
+                    subtitle.style.display = 'none';
+                    div.classList.remove('w-[280px]');
+                    div.classList.add('w-auto'); // Mengecilkan saiz kotak apabila ditutup
+                }
+            });
+
+            return div;
+        };
+        legend.addTo(map);
+
+        // 5. Tambah Tajuk Besar Peta
+        const titleControl = L.control({position: 'topleft'});
+        titleControl.onAdd = function(map) {
+            const div = L.DomUtil.create('div', 'bg-white/90 backdrop-blur-sm px-5 py-3 rounded-xl shadow-lg border border-gray-200 mt-4 ml-4');
+            div.innerHTML = '<h1 class="text-xl md:text-2xl font-black text-gray-900 tracking-tight">Organisasi TDM</h1>';
+            return div;
+        }
+        titleControl.addTo(map);
+
+    </script>
+</body>
+</html>
